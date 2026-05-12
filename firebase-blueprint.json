@@ -1,0 +1,68 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "Category for dresses",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the category"
+        }
+      },
+      "required": ["name"]
+    },
+    "Dress": {
+      "title": "Dress",
+      "description": "A dress for rent",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the dress"
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "The ID of the category"
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "The URL of the dress image"
+        },
+        "colors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Available colors"
+        },
+        "sizes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Available sizes"
+        },
+        "description": {
+          "type": "string",
+          "description": "Full description of the dress"
+        },
+        "isRented": {
+          "type": "boolean",
+          "description": "Whether the dress is currently rented"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["name", "categoryId", "imageUrl", "isRented"]
+    }
+  },
+  "firestore": {
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "List of dress categories"
+    },
+    "/dresses/{dressId}": {
+      "schema": "Dress",
+      "description": "List of dresses"
+    }
+  }
+}

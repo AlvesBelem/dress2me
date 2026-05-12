@@ -14,15 +14,149 @@ import {
   Star, 
   ChevronRight,
   Menu,
-  X
+  X,
+  LogIn,
+  User,
+  ArrowLeft,
+  LayoutDashboard
 } from "lucide-react";
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  getDocs,
+  where,
+  limit,
+  doc,
+  getDoc
+} from 'firebase/firestore';
+import { 
+  auth, 
+  db, 
+  handleFirestoreError, 
+  OperationType 
+} from './firebase';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  User as FirebaseUser,
+  signOut
+} from 'firebase/auth';
+import AdminDashboard from './components/Admin';
 
 const BRAND_COLOR = "#a67c7e";
 const WHATSAPP_URL = "https://wa.me/5591982743820";
 
+interface Dress {
+  id: string;
+  name: string;
+  categoryId: string;
+  imageUrl: string;
+  colors: string[];
+  sizes: string[];
+  description: string;
+  isRented: boolean;
+}
+
+interface Category {
+  id: string;
+  name: string;
+}
+
 export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [currentPage, setCurrentPage] = useState<'home' | 'admin' | 'auth'>('home');
+  const [selectedDress, setSelectedDress] = useState<Dress | null>(null);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  // Data states
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [dresses, setDresses] = useState<Dress[]>([]);
+  const [filteredDresses, setFilteredDresses] = useState<Dress[]>([]);
+  const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        // Check if user is admin
+        const adminDoc = await getDoc(doc(db, 'admins', user.uid));
+        setIsAdmin(adminDoc.exists());
+      } else {
+        setIsAdmin(false);
+        setCurrentPage('home');
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    fetchPublicData();
+  }, []);
+
+  const fetchPublicData = async () => {
+    setIsLoading(true);
+    try {
+      const catSnap = await getDocs(query(collection(db, 'categories'), orderBy('name')));
+      const catData = catSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category));
+      setCategories(catData);
+
+      const dressSnap = await getDocs(query(collection(db, 'dresses'), orderBy('createdAt', 'desc')));
+      const dressData = dressSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Dress));
+      setDresses(dressData);
+      setFilteredDresses(dressData);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCategoryChange = (catId: string) => {
+    setActiveCategory(catId);
+    if (catId === 'all') {
+      setFilteredDresses(dresses);
+    } else {
+      setFilteredDresses(dresses.filter(d => d.categoryId === catId));
+    }
+  };
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      if (authMode === 'login') {
+        await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        await createUserWithEmailAndPassword(auth, email, password);
+      }
+      setCurrentPage('home');
+      setEmail('');
+      setPassword('');
+    } catch (error: any) {
+      console.error(error);
+      setAuthError(error.message.includes('auth/invalid-credential') 
+        ? 'E-mail ou senha incorretos.' 
+        : 'Ocorreu um erro na autenticação. Tente novamente.');
+    }
+  };
+
+  const logout = () => {
+    signOut(auth);
+    setCurrentPage('home');
+  };
+
+  const getWhatsAppMessage = (dress: Dress) => {
+    return encodeURIComponent(`Olá! Vi o vestido "${dress.name}" no site e gostaria de agendar uma prova.`);
+  };
 
   const testimonials = [
     {
@@ -59,8 +193,188 @@ export default function App() {
     viewport: { once: true }
   };
 
+  if (currentPage === 'auth') {
+    return (
+      <div className="min-h-screen bg-brand-light flex items-center justify-center p-6 relative overflow-hidden">
+        {/* Background Decor */}
+        <div className="absolute top-0 right-0 w-1/3 h-full bg-brand-primary/5 -skew-x-12 translate-x-1/2" />
+        
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white w-full max-w-md p-10 rounded-[2.5rem] shadow-2xl relative z-10 border border-gray-100"
+        >
+          <button 
+            onClick={() => setCurrentPage('home')}
+            className="absolute top-8 left-8 text-brand-dark/40 hover:text-brand-primary transition-colors cursor-pointer"
+          >
+            <ArrowLeft />
+          </button>
+
+          <div className="text-center mb-10 pt-4">
+            <div className="w-16 h-16 rounded-full bg-brand-primary flex items-center justify-center text-white font-serif text-2xl border-4 border-white shadow-lg mx-auto mb-6">
+              D
+            </div>
+            <h2 className="font-serif text-3xl uppercase tracking-tighter mb-2">
+              {authMode === 'login' ? 'Bem-vinda de volta' : 'Crie sua conta'}
+            </h2>
+            <p className="text-brand-dark/40 font-light text-sm">
+              {authMode === 'login' ? 'Acesse o painel administrativo.' : 'Cadastre-se para gerenciar o catálogo.'}
+            </p>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-6">
+            {authError && (
+              <div className="p-4 bg-red-50 text-red-500 text-xs font-bold rounded-xl border border-red-100 text-center">
+                {authError}
+              </div>
+            )}
+            
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase font-bold tracking-widest text-brand-dark/40 ml-2">E-mail</label>
+              <input 
+                type="email" 
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 focus:ring-2 focus:ring-brand-primary/20 transition-all"
+                placeholder="exemplo@email.com"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase font-bold tracking-widest text-brand-dark/40 ml-2">Senha</label>
+              <input 
+                type="password" 
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full bg-gray-50 border-0 rounded-2xl px-6 py-4 focus:ring-2 focus:ring-brand-primary/20 transition-all"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+
+            <button 
+              type="submit"
+              className="w-full bg-brand-primary text-white py-5 rounded-2xl font-bold uppercase tracking-[0.2em] text-xs shadow-xl shadow-brand-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              {authMode === 'login' ? 'Entrar no Sistema' : 'Finalizar Cadastro'}
+            </button>
+          </form>
+
+          <div className="mt-8 pt-8 border-t border-gray-100 text-center">
+            <button 
+              onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
+              className="text-[10px] uppercase font-bold tracking-widest text-brand-dark/40 hover:text-brand-primary transition-colors cursor-pointer"
+            >
+              {authMode === 'login' ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Faça login'}
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (currentPage === 'admin' && isAdmin) {
+    return (
+      <>
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-white border-b px-6 h-16 flex items-center justify-between">
+          <button onClick={() => setCurrentPage('home')} className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-brand-dark/60 hover:text-brand-dark cursor-pointer">
+            <ArrowLeft size={18} /> Voltar ao Site
+          </button>
+          <div className="flex items-center gap-4">
+            <span className="text-xs font-bold text-brand-primary">{currentUser?.email}</span>
+            <button onClick={logout} className="text-xs font-bold uppercase tracking-widest text-red-500 cursor-pointer">Sair</button>
+          </div>
+        </div>
+        <AdminDashboard />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen selection:bg-brand-primary selection:text-white">
+      {/* Dress Detail Modal */}
+      {selectedDress && (
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-[100] bg-brand-dark/60 backdrop-blur-md flex items-center justify-center p-4 md:p-10"
+        >
+          <motion.div 
+            initial={{ scale: 0.9, y: 20 }}
+            animate={{ scale: 1, y: 0 }}
+            className="bg-brand-light w-full max-w-6xl rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col md:flex-row relative max-h-[90vh]"
+          >
+            <button 
+              onClick={() => setSelectedDress(null)}
+              className="absolute top-6 right-6 z-10 bg-white/20 backdrop-blur-md p-3 rounded-full hover:bg-white hover:text-brand-dark transition-all cursor-pointer"
+            >
+              <X />
+            </button>
+
+            <div className="w-full md:w-1/2 aspect-[3/4] md:aspect-auto overflow-hidden">
+              <img src={selectedDress.imageUrl} className="w-full h-full object-cover"  referrerPolicy="no-referrer" />
+            </div>
+
+            <div className="w-full md:w-1/2 p-8 md:p-16 flex flex-col justify-between overflow-y-auto">
+              <div>
+                <span className="text-brand-primary font-bold uppercase tracking-[0.3em] text-xs mb-4 block">
+                  {categories.find(c => c.id === selectedDress.categoryId)?.name}
+                </span>
+                <h2 className="font-serif text-4xl md:text-6xl uppercase tracking-tighter leading-none mb-8">{selectedDress.name}</h2>
+                <div className="w-20 h-1 bg-brand-primary mb-8" />
+                
+                <p className="text-brand-dark/60 font-light leading-relaxed text-lg mb-12">
+                  {selectedDress.description || "Este modelo exclusivo foi selecionado para proporcionar elegância e sofisticação ao seu evento."}
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-12 mb-12">
+                  {selectedDress.colors?.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] uppercase font-bold tracking-widest text-brand-dark/40 mb-4">Cores Disponíveis</h4>
+                      <div className="flex wrap gap-2">
+                        {selectedDress.colors.map(c => (
+                          <span key={c} className="px-4 py-2 bg-white rounded-lg text-xs border border-brand-primary/10">{c}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {selectedDress.sizes?.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] uppercase font-bold tracking-widest text-brand-dark/40 mb-4">Tamanhos</h4>
+                      <div className="flex wrap gap-2">
+                        {selectedDress.sizes.map(s => (
+                          <span key={s} className="px-4 py-2 bg-white rounded-lg text-xs border border-brand-primary/10">{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {selectedDress.isRented ? (
+                  <div className="p-6 rounded-2xl bg-red-50 text-red-600 font-bold uppercase tracking-widest text-center text-xs border border-red-100">
+                    Este vestido está alugado no momento
+                  </div>
+                ) : (
+                  <a 
+                    href={`${WHATSAPP_URL}?text=${getWhatsAppMessage(selectedDress)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-3 bg-brand-primary text-white w-full py-6 rounded-2xl font-bold uppercase tracking-[0.2em] text-sm hover:scale-105 transition-transform shadow-xl shadow-brand-primary/20"
+                  >
+                    Agendar Prova <Phone size={18} />
+                  </a>
+                )}
+                <p className="text-center text-[10px] uppercase tracking-widest text-brand-dark/30">Bolsa e brinco inclusos no aluguel</p>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+
       {/* Navigation */}
       <nav 
         className="fixed top-0 left-0 right-0 z-50 bg-brand-light/80 backdrop-blur-md border-b border-brand-primary/10"
@@ -70,6 +384,7 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
+            onClick={() => setCurrentPage('home')}
             className="flex items-center gap-2 group cursor-pointer"
           >
             <div className="w-10 h-10 rounded-full bg-brand-primary flex items-center justify-center text-white font-serif text-xl border-2 border-white shadow-sm group-hover:scale-110 transition-transform duration-500">
@@ -88,20 +403,55 @@ export default function App() {
                 {item}
               </a>
             ))}
+            {isAdmin && (
+              <button 
+                onClick={() => setCurrentPage('admin')}
+                className="text-brand-primary font-bold hover:opacity-80 transition-opacity flex items-center gap-1 cursor-pointer"
+              >
+                <User size={16} /> Admin
+              </button>
+            )}
           </div>
 
-          <motion.a 
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            href={WHATSAPP_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden md:flex items-center gap-2 bg-brand-primary text-white px-6 py-2.5 rounded-full text-xs font-semibold uppercase tracking-widest hover:bg-brand-primary/90 transition-all shadow-lg shadow-brand-primary/20"
-          >
-            Agendar Horário
-          </motion.a>
+          <div className="hidden md:flex items-center gap-4">
+            {!currentUser ? (
+              <button 
+                onClick={() => {
+                  setAuthMode('login');
+                  setCurrentPage('auth');
+                }}
+                className="p-2 text-brand-dark/50 hover:text-brand-primary transition-all flex items-center gap-2 group cursor-pointer"
+                title="Acesso Administrativo"
+              >
+                <span className="text-[10px] uppercase font-bold tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">Acesso</span>
+                <LogIn size={20} />
+              </button>
+            ) : (
+              <div className="flex items-center gap-4">
+                {isAdmin && currentPage !== 'admin' && (
+                  <button 
+                    onClick={() => setCurrentPage('admin')}
+                    className="p-2 text-brand-primary hover:bg-brand-primary/10 rounded-full transition-all cursor-pointer"
+                  >
+                    <LayoutDashboard size={20} />
+                  </button>
+                )}
+                <button onClick={logout} className="text-[10px] uppercase tracking-widest font-bold text-red-500/50 hover:text-red-500 cursor-pointer">Sair</button>
+              </div>
+            )}
+            <motion.a 
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              href={WHATSAPP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 bg-brand-primary text-white px-6 py-2.5 rounded-full text-xs font-semibold uppercase tracking-widest hover:bg-brand-primary/90 transition-all shadow-lg shadow-brand-primary/20"
+            >
+              Agendar Horário
+            </motion.a>
+          </div>
 
           <button 
             className="md:hidden p-2 text-brand-dark"
@@ -245,7 +595,7 @@ export default function App() {
       </section>
 
       {/* Catalog Gallery */}
-      <section id="catalog" className="py-24 bg-brand-light">
+      <section id="vestidos" className="py-24 bg-brand-light">
         <div className="max-w-7xl mx-auto px-6">
           <motion.div 
             variants={fadeUp}
@@ -254,16 +604,26 @@ export default function App() {
             className="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-6"
           >
             <div className="max-w-2xl">
-              <span className="uppercase text-brand-primary font-bold tracking-widest text-xs mb-4 block">Nossa Coleção</span>
+              <span className="uppercase text-brand-primary font-bold tracking-widest text-xs mb-4 block">Nosso Catálogo</span>
               <h2 className="font-serif text-4xl md:text-6xl uppercase leading-none tracking-tighter">Descubra sua próxima<br />memória inesquecível</h2>
             </div>
-            <motion.a 
-              whileHover={{ x: 5 }}
-              href="https://instagram.com/dress2me_" 
-              className="font-sans text-xs font-bold uppercase tracking-[0.2em] flex items-center gap-2 hover:text-brand-primary transition-colors border-b border-brand-dark/20 pb-1"
-            >
-              Ver mais no Instagram <ChevronRight className="w-4 h-4" />
-            </motion.a>
+            <div className="flex items-center gap-4 border-b border-brand-dark/20 pb-4 overflow-x-auto no-scrollbar">
+              <button 
+                onClick={() => handleCategoryChange('all')}
+                className={`text-[10px] uppercase font-bold tracking-widest whitespace-nowrap transition-colors cursor-pointer ${activeCategory === 'all' ? 'text-brand-primary' : 'text-brand-dark/40 hover:text-brand-dark'}`}
+              >
+                Tudo
+              </button>
+              {categories.map(cat => (
+                <button 
+                  key={cat.id}
+                  onClick={() => handleCategoryChange(cat.id)}
+                  className={`text-[10px] uppercase font-bold tracking-widest whitespace-nowrap transition-colors cursor-pointer ${activeCategory === cat.id ? 'text-brand-primary' : 'text-brand-dark/40 hover:text-brand-dark'}`}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
           </motion.div>
 
           <motion.div 
@@ -271,31 +631,47 @@ export default function App() {
             initial="initial"
             whileInView="whileInView"
             viewport={{ once: true, margin: "-100px" }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8"
+            className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 md:gap-8"
           >
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+            {filteredDresses.map((dress) => (
               <motion.div 
-                key={i}
+                key={dress.id}
                 variants={fadeUp}
                 whileHover={{ y: -10 }}
-                className="relative aspect-[3/4] overflow-hidden rounded-2xl group shadow-sm bg-white"
+                onClick={() => setSelectedDress(dress)}
+                className="relative aspect-[3/4] overflow-hidden rounded-[2rem] group shadow-sm bg-white cursor-pointer"
               >
                 <img 
-                  src={`https://images.unsplash.com/photo-1566174053879-31528523f8ae?q=80&w=800&auto=format&fit=crop&sig=${i}`}
-                  alt={`Vestido ${i}`}
+                  src={dress.imageUrl}
+                  alt={dress.name}
                   className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                   referrerPolicy="no-referrer"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-brand-dark/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-6">
-                  <p className="text-white font-serif text-xl mb-1">Coleção Gala</p>
-                  <p className="text-white/70 text-xs uppercase tracking-widest">Disponível para aluguel</p>
-                  <a href={WHATSAPP_URL} className="mt-4 bg-white text-brand-dark py-2 rounded-lg text-center text-xs font-bold uppercase tracking-wider hover:bg-brand-primary hover:text-white transition-colors">
-                    Tenho interesse
-                  </a>
+                
+                {dress.isRented && (
+                  <div className="absolute top-4 right-4 bg-red-500 text-white px-4 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-lg">
+                    Alugado
+                  </div>
+                )}
+
+                <div className="absolute inset-0 bg-gradient-to-t from-brand-dark/90 via-brand-dark/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col justify-end p-6">
+                  <span className="text-brand-primary font-bold uppercase tracking-widest text-[10px] mb-1">
+                    {categories.find(c => c.id === dress.categoryId)?.name}
+                  </span>
+                  <p className="text-white font-serif text-xl mb-4">{dress.name}</p>
+                  <button className="bg-white text-brand-dark py-3 rounded-xl text-center text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-brand-primary hover:text-white transition-all">
+                    Ver Detalhes
+                  </button>
                 </div>
               </motion.div>
             ))}
           </motion.div>
+          
+          {filteredDresses.length === 0 && !isLoading && (
+            <div className="py-20 text-center">
+              <p className="text-brand-dark/40 font-light italic">Nenhum vestido encontrado nesta categoria.</p>
+            </div>
+          )}
         </div>
       </section>
 
